@@ -267,7 +267,17 @@ namespace Npgsql.SqlGenerators
             {
                 if (!first)
                     Append(",");
-                Append(SqlBaseGenerator.QuoteIdentifier(((DbPropertyExpression)returingProperty).Property.Name));
+                var name = ((DbPropertyExpression)returingProperty).Property.Name;
+                if (name == "RowVersion")
+                {
+                    Append("int4send(xmin::text::int)");
+                    Append(" AS ");
+                    Append(SqlBaseGenerator.QuoteIdentifier("RowVersion"));
+                }
+                else
+                {
+                    Append(SqlBaseGenerator.QuoteIdentifier(name));
+                }
                 first = false;
             }
         }
@@ -387,12 +397,26 @@ namespace Npgsql.SqlGenerators
 
         internal override void WriteSql(StringBuilder sqlText)
         {
-            if (Variable != null)
+            if (Name == "xmin")
             {
-                sqlText.Append(SqlBaseGenerator.QuoteIdentifier(Variable));
-                sqlText.Append(".");
+                sqlText.Append("int4send(");
+                if (Variable != null)
+                {
+                    sqlText.Append(SqlBaseGenerator.QuoteIdentifier(Variable));
+                    sqlText.Append(".");
+                }
+                sqlText.Append(SqlBaseGenerator.QuoteIdentifier(Name));
+                sqlText.Append("::text::int)");
             }
-            sqlText.Append(SqlBaseGenerator.QuoteIdentifier(Name));
+            else
+            {
+                if (Variable != null)
+                {
+                    sqlText.Append(SqlBaseGenerator.QuoteIdentifier(Variable));
+                    sqlText.Append(".");
+                }
+                sqlText.Append(SqlBaseGenerator.QuoteIdentifier(Name));
+            }
             base.WriteSql(sqlText);
         }
     }

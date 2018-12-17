@@ -29,7 +29,10 @@ using System.Globalization;
 using System.Text;
 using System.Data.Entity.Core.Metadata.Edm;
 using System.Data.Entity.Spatial;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using JetBrains.Annotations;
 
 namespace Npgsql
@@ -39,6 +42,7 @@ namespace Npgsql
     /// </summary>
     public class NpgsqlMigrationSqlGenerator : MigrationSqlGenerator
     {
+        List<SqlColumnInfo> _objectInfo = CapitalisationHelper.ObjectInfo;
         List<MigrationStatement> _migrationStatments;
         List<string> _addedSchemas;
         List<string> _addedExtensions;
@@ -88,7 +92,7 @@ namespace Npgsql
                 else if (migrationOperation is DropIndexOperation indexOperation)
                     Convert(indexOperation);
                 else if (migrationOperation is SqlOperation sqlOperation)
-                    AddStatment(sqlOperation.Sql, sqlOperation.SuppressTransaction);
+                    AddStatment(UpdateSqlForPostgres(sqlOperation.Sql), sqlOperation.SuppressTransaction);
                 else if (migrationOperation is AddPrimaryKeyOperation primaryKeyOperation)
                     Convert(primaryKeyOperation);
                 else if (migrationOperation is CreateIndexOperation createIndexOperation)
@@ -108,6 +112,49 @@ namespace Npgsql
                 else
                     throw new NotImplementedException("Unhandled MigrationOperation " + migrationOperation.GetType().Name + " in " + GetType().Name);
             }
+        }
+
+        string UpdateSqlForPostgres(string sqlOperationSql)
+        {
+            var orig = sqlOperationSql.ToString();
+            sqlOperationSql = sqlOperationSql.Replace("[", "");
+            sqlOperationSql = sqlOperationSql.Replace("]", "");
+            sqlOperationSql = sqlOperationSql.Replace("dbo", "\"dbo\"");
+            sqlOperationSql = Regex.Replace(sqlOperationSql, @"\bnewid\(\)", "uuid_generate_v4()", RegexOptions.IgnoreCase);
+            sqlOperationSql = Regex.Replace(sqlOperationSql, @"\bgetdate\(\)", "now()", RegexOptions.IgnoreCase);
+            
+            for (var index = 0; index < _objectInfo.Count; index++)
+            {
+                var columnInfo = _objectInfo[index];
+                if (sqlOperationSql.IndexOf(columnInfo.Name, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    var matchCollection = Regex.Matches(sqlOperationSql, "\\b" + columnInfo.Name + "\\b", RegexOptions.IgnoreCase);
+                    for (var i = matchCollection.Count - 1; i >= 0; i--)
+                    {
+                        var match = matchCollection[i];
+                        var restOfSql = sqlOperationSql.Substring(match.Index + match.Length);
+
+                        var firstBit = sqlOperationSql.Substring(0, match.Index);
+                        // Now, if this col is a bool, then check if we are setting it to 0 or 1, and convert to false/true
+                        if (columnInfo.IsBool)
+                        {
+                            var boolMatch = Regex.Match(restOfSql, @"^\s*=\s*([0,1]{1})\b");
+                            if (boolMatch.Success)
+                            {
+                                restOfSql = restOfSql.Substring(boolMatch.Index + boolMatch.Length);
+                                restOfSql = " = " + (boolMatch.Groups[1].Value == "0" ? "false" : "true") + " " + restOfSql;
+                            }
+                        }
+                        sqlOperationSql = firstBit + "\"" + columnInfo.Name + "\"" + restOfSql;
+                    }
+                }
+            }
+            //Debugger.Launch();
+            //Debugger.Break();
+            Console.WriteLine(sqlOperationSql);
+            Debug.WriteLine(sqlOperationSql);
+            File.AppendAllLines("c:\\temp\\sqllog.txt", new string[] { "_Original SQL: " + orig, "_Updated: " + sqlOperationSql, "" });
+            return sqlOperationSql;
         }
 
         void AddStatment(string sql, bool suppressTransacion = false)
@@ -240,6 +287,7 @@ namespace Npgsql
 
         protected virtual void Convert(AddColumnOperation addColumnOperation)
         {
+            if (addColumnOperation.Column?.StoreType?.Equals("rowversion", StringComparison.OrdinalIgnoreCase) == true) return;
             var sql = new StringBuilder();
             sql.Append("ALTER TABLE ");
             AppendTableName(addColumnOperation.Table, sql);
@@ -254,9 +302,21 @@ namespace Npgsql
             sql.Append("ALTER TABLE ");
             AppendTableName(dropColumnOperation.Table, sql);
             sql.Append(" DROP COLUMN \"");
-            sql.Append(dropColumnOperation.Name);
+            sql.Append(ReplaceColName(dropColumnOperation.Name));
             sql.Append('"');
             AddStatment(sql);
+        }
+
+        private string ReplaceColName(string name)
+        {
+            foreach (var obj in _objectInfo)
+            {
+                if (name.Equals(obj.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return obj.Name;
+                }
+            }
+            return name;
         }
 
         protected virtual void Convert(AlterColumnOperation alterColumnOperation)
@@ -267,6 +327,12 @@ namespace Npgsql
             AppendAlterColumn(alterColumnOperation, sql);
             sql.Append(" TYPE ");
             AppendColumnType(alterColumnOperation.Column, sql, false);
+            // SL:
+            sql.Append(" USING ");
+            sql.Append("\"" + alterColumnOperation.Column.Name + "\"");
+            sql.Append("::");
+            AppendColumnType(alterColumnOperation.Column, sql, false);
+
             AddStatment(sql);
             sql.Clear();
 
@@ -538,7 +604,7 @@ namespace Npgsql
         void AppendColumn(ColumnModel column, StringBuilder sql)
         {
             sql.Append('"');
-            sql.Append(column.Name);
+            sql.Append(ReplaceColName(column.Name));
             sql.Append("\" ");
             AppendColumnType(column, sql, true);
 

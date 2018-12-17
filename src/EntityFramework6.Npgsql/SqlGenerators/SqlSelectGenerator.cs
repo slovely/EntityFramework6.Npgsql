@@ -70,6 +70,7 @@ namespace Npgsql.SqlGenerators
              */
 
             var name = expression.Property.Name;
+            if (name == "RowVersion") name = "xmin";
             var from = expression.Instance.ExpressionKind == DbExpressionKind.Property
                 ? ((DbPropertyExpression)expression.Instance).Property.Name
                 : ((DbVariableReferenceExpression)expression.Instance).VariableName;
