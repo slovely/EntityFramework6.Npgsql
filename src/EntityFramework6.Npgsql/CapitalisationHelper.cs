@@ -17,7 +17,7 @@ namespace Npgsql
     {
         #region Table/col names
 
-        List<SqlColumnInfo> _objectInfo = new List<SqlColumnInfo>
+        static List<SqlColumnInfo> _objectInfo = new List<SqlColumnInfo>
         {
             new SqlColumnInfo("__MigrationHistory"),
             new SqlColumnInfo("Accepted"),
@@ -502,7 +502,10 @@ namespace Npgsql
                 new SqlColumnInfo("LandlordCanVerifyDocuments"),
                 new SqlColumnInfo("LandlordConfirmMoveInMonies"),
                 new SqlColumnInfo("LandlordDoc"),
+                new SqlColumnInfo("LandlordFeesConfirmed") {IsBool = true},
+                new SqlColumnInfo("LandlordFeesSet") {IsBool = true},
                 new SqlColumnInfo("LandlordGroup"),
+                new SqlColumnInfo("LandlordInviteOption"),
                 new SqlColumnInfo("LandlordOrganiseEpc"),
                 new SqlColumnInfo("LandlordPackageFeePaymentType"),
                 new SqlColumnInfo("LandlordProduct"),
@@ -845,7 +848,7 @@ namespace Npgsql
                 new SqlColumnInfo("Sender_PropertyUserId"),
                 new SqlColumnInfo("SendIfUserUnconfirmed"),
                 new SqlColumnInfo("SendInspectionNotifications"),
-                new SqlColumnInfo("SendLandlordEmailOnInitialInvite"),
+                new SqlColumnInfo("SendLandlordEmailOnInitialInvite") {IsBool = true},
                 new SqlColumnInfo("SendStandingOrderReminderEmail"),
                 new SqlColumnInfo("SendTenantInspectionReminderEmail"),
                 new SqlColumnInfo("SendTenantInspectionReminderText"),
